@@ -125,7 +125,22 @@ class Sovoc:
         # return a sensible format
             
     def get(self, docid, revid=None):
-        pass
+        get_specific_rev = 'SELECT * FROM documents WHERE _id=? AND _rev=?'
+        get_leaves = 'SELECT * FROM documents WHERE _id=? AND leaf=1 AND _deleted=0'
+        
+        if revid:
+            try:
+                with self.conn:
+                    c = self.conn.cursor()
+                    c.excute(get_specific_rev, [docid, revid])
+                    return c.fetchone()
+            except sqlite3.OperationalError as err:
+                print err
+        else:
+            with self.conn:
+                c = self.conn.cursor()
+                c.excute(get_leaves, [docid])
+                
         
 if __name__ == '__main__':
          
