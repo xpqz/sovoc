@@ -102,10 +102,11 @@ class Sovoc:
             
         return (docid, revid)
             
-    def fetch_open_revs(self, docid): # https://dx13.co.uk/articles/2017/1/1/the-tree-behind-cloudants-documents-and-how-to-use-it.html
-        find_open_branches = 'SELECT rowid FROM documents WHERE _id=? AND leaf=1'
-        find_ancestral_revs = 'SELECT d.* FROM documents d JOIN ancestors a ON (d.rowid = a.ancestor) WHERE a.descendant=?'
+    def open_revs(self, docid): # https://dx13.co.uk/articles/2017/1/1/the-tree-behind-cloudants-documents-and-how-to-use-it.html
+        find_open_branches = 'SELECT rowid, body, _rev, generation FROM documents WHERE _id=? AND leaf=1 ORDER BY generation DESC'
+        find_ancestral_revs = 'SELECT d._rev FROM documents d JOIN ancestors a ON (d.rowid = a.ancestor) WHERE a.descendant=? ORDER BY generation DESC'
         
+        result = []
         try:
             with self.conn:
                 branches = self.conn.cursor()
@@ -113,33 +114,39 @@ class Sovoc:
                 for leaf in branches.execute(find_open_branches, [docid]):
                     with self.conn:
                         revs = self.conn.cursor()
-                        print 'branch tip: {}'.format(leaf[0])
+                        print 'branch tip: {0} at rev: {1}'.format(leaf[0], leaf[1])
+                        tip = json.loads(leaf[1])
+                        tip['_revisions'] = {'ids':[]}
+                        tip['_revisions']['start'] = leaf[3] 
                         # For each branch, find all ancestral nodes
                         for rev in revs.execute(find_ancestral_revs, [leaf[0]]):
-                            print rev[1]
-                    print "--"
+                            tip['_revisions']['ids'].append(rev[0].split('-')[1])
+                        result.append({'ok': tip})
 
         except sqlite3.OperationalError as err:
             print err
             
-        # return a sensible format
+        return result
             
     def get(self, docid, revid=None):
-        get_specific_rev = 'SELECT * FROM documents WHERE _id=? AND _rev=?'
-        get_leaves = 'SELECT * FROM documents WHERE _id=? AND leaf=1 AND _deleted=0'
+        # Winner: sort on generation first and then lexicographically on _rev. Return first row.
         
-        if revid:
-            try:
-                with self.conn:
-                    c = self.conn.cursor()
-                    c.excute(get_specific_rev, [docid, revid])
-                    return c.fetchone()
-            except sqlite3.OperationalError as err:
-                print err
-        else:
+        get_specific_rev = 'SELECT * FROM documents WHERE _id=? AND _rev=?'
+        get_winner = 'SELECT * FROM documents WHERE _id=? AND leaf=1 ORDER BY generation DESC, _rev DESC LIMIT 1'
+
+        try:
             with self.conn:
                 c = self.conn.cursor()
-                c.excute(get_leaves, [docid])
+                if revid: # specific rev is the simple case.
+                    c.excute(get_specific_rev, [docid, revid])
+                    return c.fetchone()
+
+                c.execute(get_winner, [docid])
+                return c.fetchone()
+    
+        except sqlite3.OperationalError as err:
+            print err                
+             
                 
         
 if __name__ == '__main__':
@@ -157,7 +164,8 @@ if __name__ == '__main__':
     (docid, revid1) = db.insert(None, None, False, {'name':'stefan'})
     (docid, revid2) = db.insert(docid, revid1, False, {'name':'stefan astrup'})
     (docid, revid3) = db.insert(docid, revid1, False, {'name':'stef'})
-    (docid, revid4) = db.insert(docid, revid2, False, {'name':'stefan astrup kruger'})
+    (docid, revid4) = db.insert(docid, revid1, False, {'name':'steffe'})
+    (docid, revid5) = db.insert(docid, revid2, False, {'name':'stefan astrup kruger'})
     
     # print docid
     # print revid
@@ -171,4 +179,8 @@ if __name__ == '__main__':
     for row in c:
         print row
         
-    db.fetch_open_revs(docid)
+    data = db.open_revs(docid)
+    print json.dumps(data, indent=2)
+    
+    # data = db.get(docid)
+    # print json.dumps(data, indent=2)
