@@ -61,6 +61,13 @@ class TestBasics(unittest.TestCase):
         result1 = self.db.insert(None, None, False, {'name':'stefan'})     
         with self.assertRaises(ConflictError):
             result2 = self.db.insert(result1['id'], 'a bad rev', False, {'name':'stefan astrup'}) 
+            
+    def test_delete(self):
+        result1 = self.db.insert(None, None, False, {'name':'bob'})
+        result2 = self.db.destroy(result1['id'], result1['rev'])
+        
+        with self.assertRaises(ConflictError):
+            self.db.insert(result2['id'], result2['rev'], False, {'name':'stefan astrup'})
         
 if __name__ == '__main__':
     unittest.main()
