@@ -67,9 +67,16 @@ class Sovoc:
     def gen_docid(cls):
         return uuid.uuid4().hex
         
-    def insert(self, docid=None, parent_revid=None, deleted=False, payload={}):  
-        # TODO: handle case where payload contains the _id and _rev
-        if parent_revid and not docid:
+    def _insert_id(self, cursor):
+        get_last_insert = 'SELECT last_insert_rowid()'
+        cursor.execute(get_last_insert)
+        row = cursor.fetchone()
+        return row['last_insert_rowid()']
+        
+    #def insert(self, docid=None, parent_revid=None, deleted=False, payload={}):  
+    def insert(self, doc, **kwargs):
+        
+        if 'parent_revid' in kwargs and not 'docid' in kwargs:
             raise SovocError('Expected a docid')
               
         insert_document = 'INSERT INTO documents (_id, _rev, _deleted, generation, leaf, body) VALUES (?, ?, ?, ?, 1, json(?))'
@@ -81,9 +88,10 @@ class Sovoc:
         
         generation = 1
         
-        if not docid:
-            docid = Sovoc.gen_docid()
-        
+        docid = kwargs.get('docid', Sovoc.gen_docid())
+        parent_revid = kwargs.get('parent_revid', False)
+        deleted = kwargs.get('deleted', False)
+
         with self.conn:
             c = self.conn.cursor()
             parent_row = None
@@ -97,20 +105,20 @@ class Sovoc:
                 parent_row = parent['rowid']
                 generation = parent['generation'] + 1
                 
-            revid = Sovoc.gen_revid(generation, payload)
+            revid = Sovoc.gen_revid(generation, doc)
                 
             # Store the document itself
-            payload.update({'_id': docid, '_rev': revid})
+            doc.update({'_id': docid, '_rev': revid})
             if deleted:
-                payload['_deleted'] = True
-            c.execute(insert_document, [docid, revid, 1 if deleted else 0, generation, json.dumps(payload)])
-            c.execute(get_last_insert)
-            document = c.fetchone()
+                doc['_deleted'] = True
+            c.execute(insert_document, [docid, revid, 1 if deleted else 0, generation, json.dumps(doc)])
+            doc_rowid = self._insert_id(c)
+            
             # Insert the indentity relation in the ancestors table
-            c.execute(ancestral_identity, [document['last_insert_rowid()'], document['last_insert_rowid()'], 0])
+            c.execute(ancestral_identity, [doc_rowid, doc_rowid, 0])
             if parent_revid:
                 # As we have at least one ancestral node, we need to complete the closures for this branch
-                c.execute(ancestral_closure, [document['last_insert_rowid()'], parent_row]) 
+                c.execute(ancestral_closure, [doc_rowid, parent_row]) 
                 # ... and also ensure that we record that the direct parent is no longer a leaf
                 c.execute(make_parent_internal, [parent_row])               
                 
@@ -118,7 +126,7 @@ class Sovoc:
         return {'ok': True, 'id': docid, 'rev': revid}
         
     def destroy(self, docid, revid):
-        return self.insert(docid, revid, True)
+        return self.insert({}, docid=docid, parent_revid=revid, deleted=True)
             
     def open_revs(self, docid): # https://dx13.co.uk/articles/2017/1/1/the-tree-behind-cloudants-documents-and-how-to-use-it.html
         find_open_branches = 'SELECT rowid, body, _rev, generation FROM documents WHERE _id=? AND leaf=1 ORDER BY generation DESC'

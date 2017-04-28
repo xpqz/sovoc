@@ -33,22 +33,22 @@ class TestBasics(unittest.TestCase):
         self.assertTrue(True)
 
     def test_createdoc(self):
-        result = self.db.insert(None, None, False, {'name':'stefan'})
+        result = self.db.insert({'name':'stefan'})
         self.assertTrue(result['ok'])
 
     def test_readdoc(self):
-        written_doc = self.db.insert(None, None, False, {'name':'adam'})
+        written_doc = self.db.insert({'name':'adam'})
         self.assertTrue(written_doc['ok'])
         
         read_doc = self.db.get(written_doc['id'])
         self.assertEqual(read_doc['_rev'], written_doc['rev'])
 
     def test_open_revs(self):
-        result1 = self.db.insert(None, None, False, {'name':'stefan'})
-        result2 = self.db.insert(result1['id'], result1['rev'], False, {'name':'stefan astrup'})
-        result3 = self.db.insert(result1['id'], result1['rev'], False, {'name':'stef'})
-        result4 = self.db.insert(result1['id'], result1['rev'], False, {'name':'steffe'})
-        result5 = self.db.insert(result1['id'], result2['rev'], False, {'name':'stefan astrup kruger'})
+        result1 = self.db.insert({'name':'stefan'})
+        result2 = self.db.insert({'name':'stefan astrup'}, docid=result1['id'], parent_revid=result1['rev'])
+        result3 = self.db.insert({'name':'stef'}, docid=result1['id'], parent_revid=result1['rev'])
+        result4 = self.db.insert({'name':'steffe'}, docid=result1['id'], parent_revid=result1['rev'])
+        result5 = self.db.insert({'name':'stefan astrup kruger'}, docid=result1['id'], parent_revid=result2['rev'])
         
         data = self.db.open_revs(result1['id'])
         
@@ -58,16 +58,16 @@ class TestBasics(unittest.TestCase):
         self.assertEqual(data[2]['ok']['_revisions']['start'], 2)
         
     def test_missing_rev(self):
-        result1 = self.db.insert(None, None, False, {'name':'stefan'})     
+        result1 = self.db.insert({'name':'stefan'})     
         with self.assertRaises(ConflictError):
-            result2 = self.db.insert(result1['id'], 'a bad rev', False, {'name':'stefan astrup'}) 
+            result2 = self.db.insert({'name':'stefan astrup'}, docid=result1['id'], parent_revid='a bad rev') 
             
     def test_delete(self):
-        result1 = self.db.insert(None, None, False, {'name':'bob'})
+        result1 = self.db.insert({'name':'bob'})
         result2 = self.db.destroy(result1['id'], result1['rev'])
         
         with self.assertRaises(ConflictError):
-            self.db.insert(result2['id'], result2['rev'], False, {'name':'stefan astrup'})
+            self.db.insert({'name':'stefan astrup'}, docid=result2['id'], parent_revid=result2['rev'])
         
 if __name__ == '__main__':
     unittest.main()
