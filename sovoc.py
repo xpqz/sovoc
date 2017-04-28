@@ -40,14 +40,16 @@ class Sovoc:
             for statement in SCHEMA:
                 c.execute(statement)
 
-    def gen_revid(self, generation, body): # should be class method probably
+    @classmethod
+    def gen_revid(cls, generation, body):
         body.pop('_id', None)
         body.pop('_rev', None)
         m = hashlib.md5()
         m.update(marshal.dumps(body))
         return '{0}-{1}'.format(generation, m.hexdigest())
         
-    def gen_docid(self):
+    @classmethod
+    def gen_docid(cls):
         return uuid.uuid4().hex
         
     def insert(self, docid=None, parent_revid=None, deleted=False, payload={}):        
@@ -61,7 +63,7 @@ class Sovoc:
         generation = 1
         
         if not docid:
-            docid = self.gen_docid()
+            docid = Sovoc.gen_docid()
         
         try:
             with self.conn:
@@ -75,7 +77,7 @@ class Sovoc:
                     
                     generation = parent['generation'] + 1
                     
-                revid = self.gen_revid(generation, payload)
+                revid = Sovoc.gen_revid(generation, payload)
                     
                 # Store the document itself
                 payload.update({'_id': docid, '_rev': revid})
