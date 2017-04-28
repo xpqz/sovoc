@@ -1,11 +1,16 @@
 #!/usr/bin/env python
 
-import unittest
 import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import unittest
 import uuid
 import sqlite3
 
-from sovoc import Sovoc
+from sovoc.sovoc import Sovoc
+from sovoc.exceptions import SovocError, ConflictError
 
 class TestBasics(unittest.TestCase):
     database = ':memory:'
@@ -50,7 +55,12 @@ class TestBasics(unittest.TestCase):
         self.assertEqual(len(data), 3)
         self.assertEqual(data[0]['ok']['_revisions']['start'], 3)
         self.assertEqual(data[1]['ok']['_revisions']['start'], 2)    
-        self.assertEqual(data[2]['ok']['_revisions']['start'], 2)            
+        self.assertEqual(data[2]['ok']['_revisions']['start'], 2)
+        
+    def test_missing_rev(self):
+        result1 = self.db.insert(None, None, False, {'name':'stefan'})     
+        with self.assertRaises(ConflictError):
+            result2 = self.db.insert(result1['id'], 'a bad rev', False, {'name':'stefan astrup'}) 
         
 if __name__ == '__main__':
     unittest.main()

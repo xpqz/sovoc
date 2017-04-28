@@ -4,6 +4,8 @@ import marshal
 import hashlib
 import uuid
 
+from exceptions import SovocError, ConflictError
+
 SCHEMA = [
     '''
     CREATE TABLE documents (
@@ -52,7 +54,11 @@ class Sovoc:
     def gen_docid(cls):
         return uuid.uuid4().hex
         
-    def insert(self, docid=None, parent_revid=None, deleted=False, payload={}):        
+    def insert(self, docid=None, parent_revid=None, deleted=False, payload={}):  
+        
+        if parent_revid and not docid:
+            raise SovocError('Expected a docid')
+              
         insert_document = 'INSERT INTO documents (_id, _rev, _deleted, generation, leaf, body) VALUES (?, ?, ?, ?, 1, json(?))'
         find_parent = 'SELECT rowid, generation FROM documents WHERE _id=? AND _rev=? AND _deleted=0'
         get_last_insert = 'SELECT last_insert_rowid()'
@@ -72,9 +78,11 @@ class Sovoc:
                 if parent_revid:
                     c.execute(find_parent, [docid, parent_revid])
                     parent = c.fetchone()
-                    parent_row = parent['rowid']
-                    # TODO: if no parent_row here, we should handle the error.
                     
+                    if not parent:
+                        raise ConflictError({'error': 'conflict', 'reason': 'Document update conflict.'})
+                        
+                    parent_row = parent['rowid']
                     generation = parent['generation'] + 1
                     
                 revid = Sovoc.gen_revid(generation, payload)
@@ -93,7 +101,7 @@ class Sovoc:
                     c.execute(make_parent_internal, [parent_row])               
                 
         except sqlite3.OperationalError as err:
-            print err
+            return {'error': 'conflict', 'reason': 'Document update conflict.'}
             
         return {'ok': True, 'id': docid, 'rev': revid}
             
