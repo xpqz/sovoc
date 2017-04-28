@@ -70,7 +70,6 @@ class Sovoc:
                 if parent_revid:
                     c.execute(find_parent, [docid, parent_revid])
                     parent = c.fetchone()
-                    print parent
                     parent_row = parent['rowid']
                     # TODO: if no parent_row here, we should handle the error.
                     
@@ -94,7 +93,7 @@ class Sovoc:
         except sqlite3.OperationalError as err:
             print err
             
-        return (docid, revid)
+        return {'ok': True, 'id': docid, 'rev': revid}
             
     def open_revs(self, docid): # https://dx13.co.uk/articles/2017/1/1/the-tree-behind-cloudants-documents-and-how-to-use-it.html
         find_open_branches = 'SELECT rowid, body, _rev, generation FROM documents WHERE _id=? AND leaf=1 ORDER BY generation DESC'
@@ -108,7 +107,6 @@ class Sovoc:
                 for leaf in branches.execute(find_open_branches, [docid]):
                     with self.conn:
                         revs = self.conn.cursor()
-                        print 'branch tip: {0} at rev: {1}'.format(leaf['rowid'], leaf['_rev'])
                         document = json.loads(leaf['body'])
                         document['_revisions'] = {'ids':[]}
                         document['_revisions']['start'] = leaf['generation'] 
@@ -141,42 +139,4 @@ class Sovoc:
                 return json.loads(document['body'])
     
         except sqlite3.OperationalError as err:
-            print err                
-             
-                
-        
-if __name__ == '__main__':
-         
-    db = Sovoc(':memory:')
-    db.setup()
-
-
-    # Quick extension test. This would blow up if the extension wasn't loaded:
-    # conn = sqlite3.connect(':memory:')
-    #
-    # print type(conn)
-    # conn.execute('select json(?)', (1337,)).fetchone()
-
-    (docid, revid1) = db.insert(None, None, False, {'name':'stefan'})
-    (docid, revid2) = db.insert(docid, revid1, False, {'name':'stefan astrup'})
-    (docid, revid3) = db.insert(docid, revid1, False, {'name':'stef'})
-    (docid, revid4) = db.insert(docid, revid1, False, {'name':'steffe'})
-    (docid, revid5) = db.insert(docid, revid2, False, {'name':'stefan astrup kruger'})
-    
-    # print docid
-    # print revid
-
-    c = db.conn.cursor()
-    c.execute('SELECT * FROM documents')
-    for row in c:
-        print row
-        
-    c.execute('SELECT * FROM ancestors')
-    for row in c:
-        print row
-        
-    data = db.open_revs(docid)
-    print json.dumps(data, indent=2)
-    
-    data = db.get(docid)
-    print json.dumps(data, indent=2)
+            print err
