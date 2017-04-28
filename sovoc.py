@@ -32,20 +32,14 @@ class Sovoc:
     def __init__(self, database):
         self.database = database
         self.conn = sqlite3.connect(self.database)
-        
-    def execute(self, sql):
-        if not type(sql) is list:
-            sql = [sql]
-        try:
-            with self.conn:
-                for st in sql:
-                    self.conn.execute(st)
-        except sqlite3.OperationalError as err:
-            print err
+        self.conn.row_factory = sqlite3.Row
         
     def setup(self):
-        self.execute(SCHEMA)
-        
+        with self.conn:
+            c = self.conn.cursor()
+            for statement in SCHEMA:
+                c.execute(statement)
+
     def gen_revid(self, generation, body): # should be class method probably
         body.pop('_id', None)
         body.pop('_rev', None)
@@ -56,7 +50,7 @@ class Sovoc:
     def gen_docid(self):
         return uuid.uuid4().hex
         
-    def insert(self, docid=None, parent=None, deleted=False, payload={}):        
+    def insert(self, docid=None, parent_revid=None, deleted=False, payload={}):        
         insert_document = 'INSERT INTO documents (_id, _rev, _deleted, generation, leaf, body) VALUES (?, ?, ?, ?, 1, json(?))'
         find_parent = 'SELECT rowid, generation FROM documents WHERE _id=? AND _rev=? AND _deleted=0'
         get_last_insert = 'SELECT last_insert_rowid()'
@@ -73,14 +67,14 @@ class Sovoc:
             with self.conn:
                 c = self.conn.cursor()
                 parent_row = None
-                if parent:
-                    c.execute(find_parent, [docid, parent])
-                    row = c.fetchone()
-                    print row
-                    parent_row = row[0]
-                    # if no parent_row here, we should handle the error.
+                if parent_revid:
+                    c.execute(find_parent, [docid, parent_revid])
+                    parent = c.fetchone()
+                    print parent
+                    parent_row = parent['rowid']
+                    # TODO: if no parent_row here, we should handle the error.
                     
-                    generation = row[1] + 1
+                    generation = parent['generation'] + 1
                     
                 revid = self.gen_revid(generation, payload)
                     
@@ -88,12 +82,12 @@ class Sovoc:
                 payload.update({'_id': docid, '_rev': revid})
                 c.execute(insert_document, [docid, revid, 1 if deleted else 0, generation, json.dumps(payload)])
                 c.execute(get_last_insert)
-                row = c.fetchone()
+                document = c.fetchone()
                 # Insert the indentity relation in the ancestors table
-                c.execute(ancestral_identity, [row[0], row[0], 0])
-                if parent:
+                c.execute(ancestral_identity, [document['last_insert_rowid()'], document['last_insert_rowid()'], 0])
+                if parent_revid:
                     # As we have at least one ancestral node, we need to complete the closures for this branch
-                    c.execute(ancestral_closure, [row[0], parent_row]) 
+                    c.execute(ancestral_closure, [document['last_insert_rowid()'], parent_row]) 
                     # ... and also ensure that we record that the direct parent is no longer a leaf
                     c.execute(make_parent_internal, [parent_row])               
                 
@@ -114,14 +108,14 @@ class Sovoc:
                 for leaf in branches.execute(find_open_branches, [docid]):
                     with self.conn:
                         revs = self.conn.cursor()
-                        print 'branch tip: {0} at rev: {1}'.format(leaf[0], leaf[1])
-                        tip = json.loads(leaf[1])
-                        tip['_revisions'] = {'ids':[]}
-                        tip['_revisions']['start'] = leaf[3] 
+                        print 'branch tip: {0} at rev: {1}'.format(leaf['rowid'], leaf['_rev'])
+                        document = json.loads(leaf['body'])
+                        document['_revisions'] = {'ids':[]}
+                        document['_revisions']['start'] = leaf['generation'] 
                         # For each branch, find all ancestral nodes
-                        for rev in revs.execute(find_ancestral_revs, [leaf[0]]):
-                            tip['_revisions']['ids'].append(rev[0].split('-')[1])
-                        result.append({'ok': tip})
+                        for rev in revs.execute(find_ancestral_revs, [leaf['rowid']]):
+                            document['_revisions']['ids'].append(rev['_rev'].split('-')[1])
+                        result.append({'ok': document})
 
         except sqlite3.OperationalError as err:
             print err
@@ -139,10 +133,12 @@ class Sovoc:
                 c = self.conn.cursor()
                 if revid: # specific rev is the simple case.
                     c.excute(get_specific_rev, [docid, revid])
-                    return c.fetchone()
+                else:
+                    c.execute(get_winner, [docid])
+                    
+                document = c.fetchone()
 
-                c.execute(get_winner, [docid])
-                return c.fetchone()
+                return json.loads(document['body'])
     
         except sqlite3.OperationalError as err:
             print err                
@@ -182,5 +178,5 @@ if __name__ == '__main__':
     data = db.open_revs(docid)
     print json.dumps(data, indent=2)
     
-    # data = db.get(docid)
-    # print json.dumps(data, indent=2)
+    data = db.get(docid)
+    print json.dumps(data, indent=2)
