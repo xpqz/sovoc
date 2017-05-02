@@ -2,6 +2,7 @@
 
 import os
 import sys
+import json
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -68,6 +69,20 @@ class TestBasics(unittest.TestCase):
         
         with self.assertRaises(ConflictError):
             self.db.insert({'name':'stefan astrup'}, docid=result2['id'], parent_revid=result2['rev'])
+             
+    def test_changes(self):
+        result1 = self.db.insert({'name':'stefan'})
+        result2 = self.db.insert({'name':'stefan astrup'}, docid=result1['id'], parent_revid=result1['rev'])
+        result3 = self.db.insert({'name':'stef'}, docid=result1['id'], parent_revid=result1['rev'])
+        result4 = self.db.insert({'name':'steffe'}, docid=result1['id'], parent_revid=result1['rev'])
+        result5 = self.db.insert({'name':'stefan astrup kruger'}, docid=result1['id'], parent_revid=result2['rev'])
+        
+        changes = self.db.changes()
+        seq = changes[2]['seq']
+        print json.dumps(changes, indent=2)
+        changes2 = self.db.changes(seq)
+        
+        print json.dumps(changes2, indent=2)
         
 if __name__ == '__main__':
     unittest.main()

@@ -27,8 +27,29 @@ SCHEMA = [
         -- ancestor and descendant
       ancestor INTEGER NOT NULL,
       descendant INTEGER NOT NULL,
-      depth INTEGER NOT NULL
-    )'''
+      depth INTEGER NOT NULL CHECK (depth >= 0),
+      FOREIGN KEY(ancestor) REFERENCES documents(rowid),
+      FOREIGN KEY(descendant) REFERENCES documents(rowid)
+    )''',
+    
+    '''
+    CREATE TABLE changes (
+      doc_row INTEGER NOT NULL,
+      seq TEXT NOT NULL,
+      FOREIGN KEY(doc_row) REFERENCES documents(rowid)
+    )''',
+    
+    '''
+    CREATE INDEX seq_idx ON changes (seq)
+    ''',
+    
+    '''
+    CREATE VIEW changes_feed AS
+      SELECT c.seq, d.rowid AS doc_row, d._deleted, d._id, d._rev
+      FROM changes c, documents d
+      WHERE c.doc_row = d.rowid
+      ORDER BY d.rowid
+    '''
 ]
 
 class Sovoc:
@@ -73,9 +94,7 @@ class Sovoc:
         row = cursor.fetchone()
         return row['last_insert_rowid()']
         
-    #def insert(self, docid=None, parent_revid=None, deleted=False, payload={}):  
     def insert(self, doc, **kwargs):
-        
         if 'parent_revid' in kwargs and not 'docid' in kwargs:
             raise SovocError('Expected a docid')
               
@@ -85,12 +104,15 @@ class Sovoc:
         ancestral_identity = 'INSERT INTO ancestors (ancestor, descendant, depth) VALUES (?, ?, ?)'
         ancestral_closure = 'INSERT INTO ancestors (ancestor, descendant, depth) SELECT ancestor, ?, depth+1 FROM ancestors WHERE descendant=?'
         make_parent_internal = 'UPDATE documents SET leaf=0 WHERE rowid=?'
+        changes_feed = 'INSERT INTO changes (doc_row, seq) VALUES (?, ?)'
         
         generation = 1
         
         docid = kwargs.get('docid', Sovoc.gen_docid())
         parent_revid = kwargs.get('parent_revid', False)
         deleted = kwargs.get('deleted', False)
+        
+        seq = uuid.uuid4().hex # for now
 
         with self.conn:
             c = self.conn.cursor()
@@ -120,8 +142,10 @@ class Sovoc:
                 # As we have at least one ancestral node, we need to complete the closures for this branch
                 c.execute(ancestral_closure, [doc_rowid, parent_row]) 
                 # ... and also ensure that we record that the direct parent is no longer a leaf
-                c.execute(make_parent_internal, [parent_row])               
+                c.execute(make_parent_internal, [parent_row])
                 
+            # Record the change
+            c.execute(changes_feed, [doc_rowid, seq])
             
         return {'ok': True, 'id': docid, 'rev': revid}
         
@@ -166,3 +190,33 @@ class Sovoc:
             document = c.fetchone()
 
             return json.loads(document['body'])
+            
+            
+    def changes(self, seq=None):
+        get_changes = '''
+            SELECT * 
+            FROM changes_feed 
+            WHERE doc_row > 
+              (SELECT MIN(rowid) 
+               FROM changes 
+               WHERE seq=?)'''
+               
+        get_changes_all = 'SELECT * FROM changes_feed'
+           
+        result = []
+        with self.conn:
+            c = self.conn.cursor()
+            if seq:
+                c.execute(get_changes, [seq])
+            else:
+                c.execute(get_changes_all)
+                
+            for row in c:
+                entry = {'seq': row['seq'], 'id': row['_id'], 'rev': row['_rev']}
+                if row['_deleted'] == 1:
+                    entry['deleted'] = True
+                result.append(entry)
+                
+                
+        return result
+
