@@ -21,11 +21,19 @@ class TestBasics(unittest.TestCase):
     def setUpClass(cls):
         cls.db = Sovoc(cls.database)
         cls.db.setup()
-
+        
+    def setUp(self):
+        self.db = Sovoc(self.database)
+        self.db.setup()
+        
     @classmethod
     def tearDownClass(cls):
         cls.db.conn.close()
         cls.db = None
+        
+    def tearDown(self):
+        self.db.conn.close()
+        self.db = None
         
     def test_json1_extension_present(self):
         # Quick extension test. This blows up if the extension wasn't loaded
@@ -46,10 +54,10 @@ class TestBasics(unittest.TestCase):
 
     def test_open_revs(self):
         result1 = self.db.insert({'name':'stefan'})
-        result2 = self.db.insert({'name':'stefan astrup'}, docid=result1['id'], parent_revid=result1['rev'])
-        result3 = self.db.insert({'name':'stef'}, docid=result1['id'], parent_revid=result1['rev'])
-        result4 = self.db.insert({'name':'steffe'}, docid=result1['id'], parent_revid=result1['rev'])
-        result5 = self.db.insert({'name':'stefan astrup kruger'}, docid=result1['id'], parent_revid=result2['rev'])
+        result2 = self.db.insert({'name':'stefan astrup'}, _id=result1['id'], _rev=result1['rev'])
+        result3 = self.db.insert({'name':'stef'}, _id=result1['id'], _rev=result1['rev'])
+        result4 = self.db.insert({'name':'steffe'}, _id=result1['id'], _rev=result1['rev'])
+        result5 = self.db.insert({'name':'stefan astrup kruger'}, _id=result1['id'], _rev=result2['rev'])
         
         data = self.db.open_revs(result1['id'])
         
@@ -61,28 +69,46 @@ class TestBasics(unittest.TestCase):
     def test_missing_rev(self):
         result1 = self.db.insert({'name':'stefan'})     
         with self.assertRaises(ConflictError):
-            result2 = self.db.insert({'name':'stefan astrup'}, docid=result1['id'], parent_revid='a bad rev') 
+            result2 = self.db.insert({'name':'stefan astrup'}, _id=result1['id'], _rev='a bad rev') 
             
     def test_delete(self):
         result1 = self.db.insert({'name':'bob'})
         result2 = self.db.destroy(result1['id'], result1['rev'])
         
         with self.assertRaises(ConflictError):
-            self.db.insert({'name':'stefan astrup'}, docid=result2['id'], parent_revid=result2['rev'])
+            self.db.insert({'name':'stefan astrup'}, _id=result2['id'], _rev=result2['rev'])
+            
+    def test_bulk(self):
+        result = self.db.bulk([
+            {'name': 'adam'},
+            {'name': 'bob'},
+            {'name': 'charlie'},
+            {'name': 'danni'},
+            {'name': 'eve'},
+            {'name': 'frank'}
+        ])
+        
+        # print json.dumps(result, indent=2)
              
     def test_changes(self):
         result1 = self.db.insert({'name':'stefan'})
-        result2 = self.db.insert({'name':'stefan astrup'}, docid=result1['id'], parent_revid=result1['rev'])
-        result3 = self.db.insert({'name':'stef'}, docid=result1['id'], parent_revid=result1['rev'])
-        result4 = self.db.insert({'name':'steffe'}, docid=result1['id'], parent_revid=result1['rev'])
-        result5 = self.db.insert({'name':'stefan astrup kruger'}, docid=result1['id'], parent_revid=result2['rev'])
+        result2 = self.db.insert({'name':'stefan astrup'}, _id=result1['id'], _rev=result1['rev'])
+        result3 = self.db.insert({'name':'stef'}, _id=result1['id'], _rev=result1['rev'])
+        result4 = self.db.insert({'name':'steffe'}, _id=result1['id'], _rev=result1['rev'])
+        result5 = self.db.insert({'name':'stefan astrup kruger'}, _id=result1['id'], _rev=result2['rev'])
         
-        changes = self.db.changes()
-        seq = changes[2]['seq']
-        print json.dumps(changes, indent=2)
-        changes2 = self.db.changes(seq)
-        
-        print json.dumps(changes2, indent=2)
+        i = 0
+        bookmark = None
+        for entry in self.db.changes():
+            if i == 2:
+                bookmark = entry['seq']
+            print json.dumps(entry, indent=2)
+            i += 1
+            
+        print '---'
+            
+        for entry in self.db.changes(seq=bookmark):
+            print json.dumps(entry, indent=2)
         
 if __name__ == '__main__':
     unittest.main()

@@ -95,9 +95,35 @@ class Sovoc:
         return row['last_insert_rowid()']
         
     def insert(self, doc, **kwargs):
-        if 'parent_revid' in kwargs and not 'docid' in kwargs:
-            raise SovocError('Expected a docid')
-              
+        if '_rev' in kwargs:
+            doc['_rev'] = kwargs['_rev']
+        if '_id' in kwargs:
+            doc['_id'] = kwargs['_id']
+        if '_deleted' in kwargs:
+            doc['_deleted'] = kwargs['_deleted']
+
+        result = self.bulk([doc])
+            
+        return result[0]
+        
+    def update(self, doc, **kwargs):
+        # We need at least an _id
+        if '_rev' in kwargs:
+            doc['_rev'] = kwargs['_rev']
+        if '_id' in kwargs:
+            doc['_id'] = kwargs['_id']
+        if '_deleted' in kwargs:
+            doc['_deleted'] = kwargs['_deleted']
+            
+        if not '_id' in doc:
+            raise SovocError('No _id given')
+
+        result = self.bulk([doc])
+            
+        return result[0]
+        
+    def bulk(self, docs, **kwargs):
+
         insert_document = 'INSERT INTO documents (_id, _rev, _deleted, generation, leaf, body) VALUES (?, ?, ?, ?, 1, json(?))'
         find_parent = 'SELECT rowid, generation FROM documents WHERE _id=? AND _rev=? AND _deleted=0'
         get_last_insert = 'SELECT last_insert_rowid()'
@@ -106,51 +132,53 @@ class Sovoc:
         make_parent_internal = 'UPDATE documents SET leaf=0 WHERE rowid=?'
         changes_feed = 'INSERT INTO changes (doc_row, seq) VALUES (?, ?)'
         
-        generation = 1
-        
-        docid = kwargs.get('docid', Sovoc.gen_docid())
-        parent_revid = kwargs.get('parent_revid', False)
-        deleted = kwargs.get('deleted', False)
-        
         seq = uuid.uuid4().hex # for now
 
+        result = []
+        
         with self.conn:
             c = self.conn.cursor()
-            parent_row = None
-            if parent_revid:
-                c.execute(find_parent, [docid, parent_revid])
-                parent = c.fetchone()
+            for doc in docs:
+                generation = 1
+                parent_row = None
+                docid = doc.get('_id', Sovoc.gen_docid())
+                parent_revid = doc.get('_rev', None)
+                deleted = doc.get('_deleted', False)
+                                
+                if parent_revid:
+                    c.execute(find_parent, [docid, parent_revid])
+                    parent = c.fetchone()
                 
-                if not parent:
-                    raise ConflictError({'error': 'conflict', 'reason': 'Document update conflict.'})
+                    if not parent:
+                        raise ConflictError({'error': 'conflict', 'reason': 'Document update conflict.'})
                     
-                parent_row = parent['rowid']
-                generation = parent['generation'] + 1
+                    parent_row = parent['rowid']
+                    generation = parent['generation'] + 1
                 
-            revid = Sovoc.gen_revid(generation, doc)
+                revid = Sovoc.gen_revid(generation, doc)
                 
-            # Store the document itself
-            doc.update({'_id': docid, '_rev': revid})
-            if deleted:
-                doc['_deleted'] = True
-            c.execute(insert_document, [docid, revid, 1 if deleted else 0, generation, json.dumps(doc)])
-            doc_rowid = self._insert_id(c)
+                # Store the document itself
+                doc.update({'_id': docid, '_rev': revid})
+                c.execute(insert_document, [docid, revid, 1 if deleted else 0, generation, json.dumps(doc)])
+                doc_rowid = self._insert_id(c)
             
-            # Insert the indentity relation in the ancestors table
-            c.execute(ancestral_identity, [doc_rowid, doc_rowid, 0])
-            if parent_revid:
-                # As we have at least one ancestral node, we need to complete the closures for this branch
-                c.execute(ancestral_closure, [doc_rowid, parent_row]) 
-                # ... and also ensure that we record that the direct parent is no longer a leaf
-                c.execute(make_parent_internal, [parent_row])
+                # Insert the indentity relation in the ancestors table
+                c.execute(ancestral_identity, [doc_rowid, doc_rowid, 0])
+                if parent_revid:
+                    # As we have at least one ancestral node, we need to complete the closures for this branch
+                    c.execute(ancestral_closure, [doc_rowid, parent_row]) 
+                    # ... and also ensure that we record that the direct parent is no longer a leaf
+                    c.execute(make_parent_internal, [parent_row])
                 
-            # Record the change
-            c.execute(changes_feed, [doc_rowid, seq])
+                # Record the change
+                c.execute(changes_feed, [doc_rowid, seq])
             
-        return {'ok': True, 'id': docid, 'rev': revid}
+                result.append({'ok': True, 'id': docid, 'rev': revid})
+                
+        return result
         
     def destroy(self, docid, revid):
-        return self.insert({}, docid=docid, parent_revid=revid, deleted=True)
+        return self.insert({}, _id=docid, _rev=revid, _deleted=True)
             
     def open_revs(self, docid): # https://dx13.co.uk/articles/2017/1/1/the-tree-behind-cloudants-documents-and-how-to-use-it.html
         find_open_branches = 'SELECT rowid, body, _rev, generation FROM documents WHERE _id=? AND leaf=1 ORDER BY generation DESC'
@@ -192,18 +220,13 @@ class Sovoc:
             return json.loads(document['body'])
             
             
-    def changes(self, seq=None):
-        get_changes = '''
-            SELECT * 
-            FROM changes_feed 
-            WHERE doc_row > 
-              (SELECT MIN(rowid) 
-               FROM changes 
-               WHERE seq=?)'''
-               
+    def changes(self, **kwargs):
+        seq = kwargs.get('seq', None)
+        chunk = kwargs.get('chunk', 1000)
+        
+        get_changes = 'SELECT * FROM changes_feed WHERE doc_row > (SELECT MIN(rowid) FROM changes WHERE seq=?)'
         get_changes_all = 'SELECT * FROM changes_feed'
-           
-        result = []
+
         with self.conn:
             c = self.conn.cursor()
             if seq:
@@ -211,12 +234,13 @@ class Sovoc:
             else:
                 c.execute(get_changes_all)
                 
-            for row in c:
-                entry = {'seq': row['seq'], 'id': row['_id'], 'rev': row['_rev']}
-                if row['_deleted'] == 1:
-                    entry['deleted'] = True
-                result.append(entry)
-                
-                
-        return result
-
+            while True:
+                results = c.fetchmany(chunk)
+                if not results:
+                    break
+                    
+                for row in results:
+                    entry = {'seq': row['seq'], 'id': row['_id'], 'rev': row['_rev']}
+                    if row['_deleted'] == 1:
+                        entry['deleted'] = True
+                    yield entry
