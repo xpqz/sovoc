@@ -97,18 +97,57 @@ class TestBasics(unittest.TestCase):
         result4 = self.db.insert({'name':'steffe'}, _id=result1['id'], _rev=result1['rev'])
         result5 = self.db.insert({'name':'stefan astrup kruger'}, _id=result1['id'], _rev=result2['rev'])
         
-        i = 0
+        i = 0 # total 
         bookmark = None
         for entry in self.db.changes():
-            if i == 2:
+            if i == 2: # pick number 2
                 bookmark = entry['seq']
-            print json.dumps(entry, indent=2)
             i += 1
             
-        print '---'
-            
+        self.assertTrue(i == 5) # documents added above
+        
+        # fast-forward to bookmark @ 2
+        j = 0
         for entry in self.db.changes(seq=bookmark):
-            print json.dumps(entry, indent=2)
+            j += 1
+            
+        self.assertTrue(j == i - 3) # total - remainder - "fence post" @ 2
+        
+    def test_alldocs1(self):
+        result1 = self.db.insert({'name':'stefan'}) 
+        result2 = self.db.insert({'name':'stefan astrup'}, _id=result1['id'], _rev=result1['rev'])
+        result3 = self.db.insert({'name':'stef'}, _id=result1['id'], _rev=result1['rev'])
+        result4 = self.db.insert({'name':'steffe'}, _id=result1['id'], _rev=result1['rev'])
+        result5 = self.db.insert({'name':'stefan astrup kruger'}, _id=result1['id'], _rev=result2['rev'])
+        
+        bulk_results = self.db.bulk([
+            {'name': 'adam'},
+            {'name': 'bob'},
+            {'name': 'charlie'},
+            {'name': 'danni'},
+            {'name': 'eve'},
+            {'name': 'frank'}
+        ])
+        
+        count = 0
+        for winner in self.db.list(include_docs=True):
+            count += 1
+
+        self.assertEqual(count, 7)
+            
+        count = 0
+        for leaf in self.db.list(include_docs=True, conflicts=True):
+            count += 1
+            
+        self.assertEqual(count, 9)
+        
+        keys = [result1['id'], bulk_results[2]['id'], bulk_results[5]['id']]
+        count = 0
+        for leaf in self.db.list(include_docs=True, keys=keys):
+            count += 1
+            
+        self.assertEqual(count, len(keys))
+            
         
 if __name__ == '__main__':
     unittest.main()

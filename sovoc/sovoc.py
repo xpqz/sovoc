@@ -244,3 +244,51 @@ class Sovoc:
                     if row['_deleted'] == 1:
                         entry['deleted'] = True
                     yield entry
+                    
+    def list(self, **kwargs):
+        """
+        See: http://docs.couchdb.org/en/2.0.0/api/database/bulk-api.html#db-all-docs
+        """
+        include_docs = kwargs.get('include_docs', False)
+        conflicts = kwargs.get('conflicts', False)
+        if not include_docs: # only allow conflicts if also including doc bodies; see CouchAPI link above
+            conflicts = False
+            
+        chunk = kwargs.get('chunk', 1000)        
+        keys = kwargs.get('keys', [])
+        
+        fields = '_id, _rev'
+        if include_docs:
+            fields = '_id, _rev, body'
+            
+        get_winners = 'SELECT {} FROM documents WHERE leaf=1 AND _deleted=0 ORDER BY generation DESC, _rev DESC'.format(fields)
+        
+        keyed_param_bindings = ','.join(['?']*len(keys))
+        get_keyed_winners = 'SELECT {0} FROM documents WHERE leaf=1 AND _deleted=0 AND _id IN ({1}) ORDER BY generation DESC, _rev DESC'.format(fields, keyed_param_bindings)
+
+        with self.conn:
+            c = self.conn.cursor()
+            if keys:
+                c.execute(get_keyed_winners, keys)
+            else:
+                c.execute(get_winners)
+                
+            current_id = None
+        
+            while True:
+                results = c.fetchmany(chunk)
+                if not results:
+                    break
+                    
+                for row in results:
+                    entry = {'id': row['_id'], 'rev': row['_rev']}
+                    if include_docs:
+                        entry['doc'] = json.loads(row['body'])
+                        
+                    # If conflicts are requested, we return all leaf revisions. TODO: check format for conflicts - should they be grouped?
+                    if conflicts:
+                        yield entry
+                    elif row['_id'] != current_id: # otherwise, only the winners (the first revision)
+                        current_id = row['_id']
+
+                        yield entry
