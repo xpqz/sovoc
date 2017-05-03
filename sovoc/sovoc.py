@@ -292,3 +292,10 @@ class Sovoc:
                         current_id = row['_id']
 
                         yield entry
+                        
+    def fetch(self, **kwargs):
+        """_bulk_get"""
+        pass
+        
+    def revs_diff(self, **kwargs):
+        pass
