@@ -5,7 +5,7 @@ import hashlib
 import uuid
 import time
 
-from exceptions import SovocError, ConflictError
+from sovoc.exceptions import SovocError, ConflictError
 
 SCHEMA = [
     '''
@@ -298,4 +298,5 @@ class Sovoc:
         pass
         
     def revs_diff(self, **kwargs):
+        # http://docs.couchdb.org/en/2.0.0/api/database/misc.html#post--db-_revs_diff
         pass
