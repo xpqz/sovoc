@@ -4,6 +4,7 @@ import marshal
 import hashlib
 import uuid
 import time
+import copy
 
 from sovoc.exceptions import SovocError, ConflictError
 
@@ -51,6 +52,28 @@ SCHEMA = [
       ORDER BY d.rowid
     '''
 ]
+
+def _flatten(jsdict): # yuck
+    def f(d, path):
+        if d == {}:
+            return {}
+        
+        (k, v) = d.popitem()
+        data = None
+        path.append(k)
+    
+        if type(v) == dict:
+            data = f(v, path)
+        else:
+            data = dict(zip(['.'.join(path)], [v]))
+            path.pop()
+    
+        for (k, v) in f(d, path).items():
+            data[k] = v
+    
+        return data
+    
+    return f(copy.deepcopy(jsdict), [])
 
 class Sovoc:
     def __init__(self, database):
@@ -300,3 +323,75 @@ class Sovoc:
     def revs_diff(self, **kwargs):
         # http://docs.couchdb.org/en/2.0.0/api/database/misc.html#post--db-_revs_diff
         pass
+        
+    def find(self, query, chunk = 1000):
+        # query is a CQ expression represented by a dict
+        
+        # 1. Find the requested fields: they will form the SELECT a, b, c... part, which we 
+        #    need to extract from the json payload, apart from _id and _rev
+        fields = []
+        fieldstr = ''
+        for field in query['fields']:
+            if field in ['_id', '_rev']:
+                fields.append(field)
+            else:
+                fields.append('json_extract(body, "$.{0}") AS {0}'.format(field)) # NOT injectable; see e.g....[so]
+        
+        if fields:
+            fieldstr = ', '.join(fields)
+             
+        # 2. Optional sorting goes into ORDER BY x, y, x   
+        order = []
+        orderstr = ''
+        if 'sort' in query:
+            for sorter in query['sort']:
+                for (field, direction) in sorter.items():
+                    if direction.upper() in ['ASC', 'DESC']:
+                        order.append('{0} {1}'.format(field, direction))
+                    
+        if order:
+            orderstr = ' ORDER BY {0}'.format(','.join(order))
+            
+        # 3. The selector is the discriminant, i.e. the WHERE i, j, k bit of the statement
+        discriminants = []
+        wherestr = ''
+        for (field, value) in query['selector'].items():
+            if type(value) != dict: # scalar
+                # If part of the requested fields, we don't extract from json, as should have been aliased already.
+                if field in fields:
+                    discriminants.append(['{0}=?'.format(field), value])
+                else: # Discriminant not requested
+                    discriminants.append(['json_extract(body, "$.{0}")=?'.format(field), value])
+            else: # A dict -- either a sub-field query or an operator
+                # 3.1 Sub-field as json object:
+                #
+                # "imdb": {
+                #     "rating": 8
+                # }
+                # 
+                # Flatten to "imdb.rating": 8
+                # 
+                # This will need to be extracted from the json
+                for (fkey, fval) in _flatten({field: value}).items():
+                    discriminants.append(['json_extract(body, "$.{0}")=?'.format(fkey), fval])
+                
+        if discriminants:
+            wherestr = ' WHERE {0}'.format(' AND '.join([term[0] for term in discriminants]))
+    
+        statement = 'SELECT {0} FROM documents{1}{2}'.format(fieldstr, wherestr, orderstr)
+        
+        print(statement)
+        
+        values = [term[1] for term in discriminants]
+        
+        with self.conn:
+            c = self.conn.cursor()
+            c.execute(statement, values)
+            
+            while True:
+                results = c.fetchmany(chunk)
+                if not results:
+                    break
+                    
+                for row in results:
+                    yield {key: row[key] for key in row.keys()}
