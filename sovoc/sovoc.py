@@ -53,27 +53,26 @@ SCHEMA = [
     '''
 ]
 
-def _flatten(jsdict): # yuck
-    def f(d, path):
-        if d == {}:
-            return {}
+def _flatten(d):
+
+    result = {}
+    
+    def _key(parent, key):
+        if parent:
+            return '{0}.{1}'.format(parent, key)
+        return key
         
-        (k, v) = d.popitem()
-        data = None
-        path.append(k)
+    def _f(d, parent=None):
+        for key, val in d.items():
+            keystr = _key(parent, key)
+            if type(val) == dict:
+                _f(val, keystr)
+            else:
+                result[keystr] = val
+
+    _f(d)
     
-        if type(v) == dict:
-            data = f(v, path)
-        else:
-            data = dict(zip(['.'.join(path)], [v]))
-            path.pop()
-    
-        for (k, v) in f(d, path).items():
-            data[k] = v
-    
-        return data
-    
-    return f(copy.deepcopy(jsdict), [])
+    return result
 
 class Sovoc:
     def __init__(self, database):
