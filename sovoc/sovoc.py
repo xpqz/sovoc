@@ -326,6 +326,16 @@ class Sovoc:
     def find(self, query, chunk = 1000):
         # query is a CQ expression represented by a dict
         
+        def _operator(opstr):
+            return {
+                '$eq': '=',
+                '$ne': '!=',                
+                '$lt': '<',
+                '$lte': '<=',                
+                '$gt': '>',                
+                '$gte': '>=',                
+            }.get(opstr, '')
+        
         # 1. Find the requested fields: they will form the SELECT a, b, c... part, which we 
         #    need to extract from the json payload, apart from _id and _rev
         fields = []
@@ -361,8 +371,8 @@ class Sovoc:
                     discriminants.append(['{0}=?'.format(field), value])
                 else: # Discriminant not requested
                     discriminants.append(['json_extract(body, "$.{0}")=?'.format(field), value])
-            else: # A dict -- either a sub-field query or an operator
-                # 3.1 Sub-field as json object:
+            else: # A dict -- either a sub-field query or an operator. Or both.
+                # Sub-field as json object:
                 #
                 # "imdb": {
                 #     "rating": 8
@@ -370,9 +380,27 @@ class Sovoc:
                 # 
                 # Flatten to "imdb.rating": 8
                 # 
-                # This will need to be extracted from the json
+                # 
+                #
+                # The operator case:
+                #
+                # "imdb": {
+                #     "rating": {
+                #         "$gt": 8
+                #     }
+                # }
+                #
+                # This will need to be extracted from the json.
                 for (fkey, fval) in _flatten({field: value}).items():
-                    discriminants.append(['json_extract(body, "$.{0}")=?'.format(fkey), fval])
+                    if '.$' in fkey:
+                        key_components = fkey.split('.')
+                        op = key_components[-1]
+                        if _operator(op):
+                            discriminants.append(['json_extract(body, "$.{0}"){1}?'.format('.'.join(key_components[:-1]), _operator(op)), fval])
+                        else:
+                            raise SovocError('Bad selector syntax')
+                    else:
+                        discriminants.append(['json_extract(body, "$.{0}")=?'.format(fkey), fval])
                 
         if discriminants:
             wherestr = ' WHERE {0}'.format(' AND '.join([term[0] for term in discriminants]))
