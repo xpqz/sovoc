@@ -27,13 +27,15 @@ cd sqliteodbc-0.9995
 make
 sudo make install
 
-sudo cat > /etc/odbcinst.ini << EOF
+cat > odbcinst.ini << EOF
 [SQLite3]
 Description=SQLite ODBC Driver
 Driver=/usr/local/lib/libsqlite3odbc.so
 Setup=/usr/local/lib/libsqlite3odbc.so
 Threading=4
 EOF
+
+sudo mv odbcinst.ini /etc
 
 # Couch stuff
 curl -HContent-Type:application/json -XPUT 'http://localhost:5984/_users/org.couchdb.user:stefan' --data-binary '{"_id": "org.couchdb.user:stefan","name": "stefan","roles": [],"type": "user","password": "xyzzy"}'
