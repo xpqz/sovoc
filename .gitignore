@@ -1,3 +1,5 @@
+py3
+*.log
 bin
 py3
 include
@@ -7,3 +9,7 @@ pip-selfcheck.json
 .vagrant
 .Python
 *.pyc
+*.tgz
+lib64
+.vagrant
+

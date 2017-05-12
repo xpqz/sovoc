@@ -4,8 +4,10 @@ import marshal
 import hashlib
 import uuid
 import time
+import copy
 
-from exceptions import SovocError, ConflictError
+from sovoc.exceptions import SovocError, ConflictError
+from sovoc.mango import Mango
 
 SCHEMA = [
     '''
@@ -298,4 +300,22 @@ class Sovoc:
         pass
         
     def revs_diff(self, **kwargs):
+        # http://docs.couchdb.org/en/2.0.0/api/database/misc.html#post--db-_revs_diff
         pass
+        
+    def find(self, query, chunk = 1000):
+        # query is a CQ expression represented by a dict
+        cq = Mango(query)
+        statement, values = cq.statement()
+        
+        with self.conn:
+            c = self.conn.cursor()
+            c.execute(statement, values)
+            
+            while True:
+                results = c.fetchmany(chunk)
+                if not results:
+                    break
+                    
+                for row in results:
+                    yield {key: row[key] for key in row.keys()}
