@@ -4,12 +4,11 @@ import marshal
 import hashlib
 import uuid
 import time
-import copy
 
 from sovoc.exceptions import SovocError, ConflictError
 from sovoc.mango import Mango
 
-SCHEMA = [
+SCHEMA = [ # TODO: add explicit INTEGER PRIMARY KEY instead of relying on rowid, which may change on vacuum
     '''
     CREATE TABLE documents (
       _id TEXT NOT NULL,
