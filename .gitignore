@@ -1,4 +1,5 @@
 py3
+*.db
 *.log
 bin
 py3
