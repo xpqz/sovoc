@@ -37,5 +37,13 @@ EOF
 
 sudo mv odbcinst.ini /etc
 
+# OpenResty
+wget https://openresty.org/download/openresty-1.11.2.3.tar.gz
+tar zxf openresty-1.11.2.3.tar.gz
+cd openresty-1.11.2.3
+./configure -j2
+make -j2
+sudo make install
+
 # Couch stuff
 curl -HContent-Type:application/json -XPUT 'http://localhost:5984/_users/org.couchdb.user:stefan' --data-binary '{"_id": "org.couchdb.user:stefan","name": "stefan","roles": [],"type": "user","password": "xyzzy"}'
