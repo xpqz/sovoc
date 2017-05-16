@@ -16,7 +16,7 @@ pip install --upgrade pip
 pip install wheel
 pip install aioodbc
 pip install gevent gevent-websocket gunicorn wsaccel ujson
-pip install Flask chance
+pip install Flask chance falcon
 
 # SQLite driver for odbc
 cd /tmp
