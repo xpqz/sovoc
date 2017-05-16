@@ -47,5 +47,9 @@ cd openresty-1.11.2.3
 make -j2
 sudo make install
 
+# Lua
+sudo luarocks install luasec
+sudo luarocks install lsqlite3
+
 # Couch stuff
 curl -HContent-Type:application/json -XPUT 'http://localhost:5984/_users/org.couchdb.user:stefan' --data-binary '{"_id": "org.couchdb.user:stefan","name": "stefan","roles": [],"type": "user","password": "xyzzy"}'
