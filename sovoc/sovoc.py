@@ -156,7 +156,7 @@ class Sovoc:
                     parent_row = parent['rowid']
                     generation = parent['generation'] + 1
                 
-                revid = Sovoc.gen_revid(generation, doc)
+                revid = Sovoc.gen_revid(generation, doc) # TODO: is this correct, or will doc be stripped of any _id, _revs?
                 
                 # Store the document itself
                 doc.update({'_id': docid, '_rev': revid})
