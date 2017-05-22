@@ -148,4 +148,43 @@ TestMulti = {}
   
 -- end of table TestMulti
 
+TestRevsdiff = {}
+  function TestRevsdiff:setUp()
+    db = Sovoc:new{database=':memory:'}
+    db:setup()
+  end
+
+  function TestRevsdiff:tearDown()
+    
+  end
+
+  function TestRevsdiff:test_static()
+    local result1 = db:insert{doc={name='stefan'}}
+    local result2 = db:insert{doc={name='stefan astrup'}, _id=result1.id, _rev=result1.rev}
+    local result3 = db:insert{doc={name='stef'}, _id=result1.id, _rev=result1.rev}
+    local result4 = db:insert{doc={name='steffe'}, _id=result1.id, _rev=result1.rev}
+    local result5 = db:insert{doc={name='stefan astrup kruger'}, _id=result1.id, _rev=result2.rev}
+
+    local state = {}
+    local fakerev = '6-7069a4a13b158f71082ae633266be1b5'
+
+    state[result1.id] = {
+      result1.rev,
+      result2.rev,
+      result3.rev,
+      result4.rev,
+      result5.rev,
+      fakerev
+    }
+
+    local revsdiff = db:revs_diff(state)
+
+    print(json.encode(revsdiff))
+    luaunit.assertEquals(revsdiff[1]._id, result1.id)
+    luaunit.assertEquals(revsdiff[1]._rev, fakerev)
+    luaunit.assertEquals(#revsdiff, 1)
+  end
+
+  -- end of table TestRevsdiff
+
 os.exit(luaunit.LuaUnit.run())

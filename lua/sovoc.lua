@@ -413,4 +413,86 @@ function Sovoc:iterate_changes(options)
   return coroutine.wrap(function() self:next_change(options) end)
 end
 
+--- Static revs_diff: return data about misssing revisions
+-- @param Table
+-- @usage local missing = db:revs_diff{
+--     "baz": {
+--         "2-7051cbe5c8faecd085a3fa619e6e6337"
+--     },
+--     "foo": {
+--         "3-6a540f3d701ac518d3b9733d673c5484"
+--     },
+--     "bar": {
+--         "1-d4e501ab47de6b2000fc8a02f84a0c77",
+--         "1-967a00dff5e02add41819138abb3284d"
+--     }
+-- }
+function Sovoc:revs_diff(data)
+  local tblname = gen_docid()
+  self.db:exec(string.format('BEGIN TRANSACTION; CREATE TEMPORARY TABLE "%s" (_id TEXT, _rev TEXT);', tblname))
+
+  local insert_diff = assert(self.db:prepare(string.format('INSERT INTO "%s" (_id, _rev) VALUES (?, ?)', tblname)))
+  local missing_revs = string.format('SELECT _id, _rev FROM "%s" EXCEPT SELECT _id, _rev FROM documents', tblname)
+
+  -- Populate temporary table
+  for idset, revs in pairs(data) do
+    for _, rev in ipairs(revs) do
+      execute{statement=insert_diff, data={idset, rev}, step=true}
+    end
+  end
+  
+  local i=1
+  local result = {}
+  for missing in self.db:nrows(missing_revs) do
+    result[#result+1] = missing
+  end
+  self.db:exec(string.format('DROP TABLE "%s"; COMMIT;', tblname))
+
+  return result
+end
+
+--- Return data about misssing revisions -- co-routine helper
+-- @param Table
+function Sovoc:next_revs_diff(data)
+  local tblname = gen_docid()
+  self.db:exec(string.format('BEGIN TRANSACTION; CREATE TEMPORARY TABLE "%s" (_id TEXT, _rev TEXT);', tblname))
+
+  local insert_diff = assert(self.db:prepare(string.format('INSERT INTO "%s" (_id, _rev) VALUES (?, ?)', tblname)))
+  local missing_revs = string.format('SELECT _id, _rev FROM "%s" EXCEPT SELECT _id, _rev FROM documents', tblname)
+    
+  -- Populate temporary table
+  for idset, revs in pairs(data) do
+    for _, rev in ipairs(revs) do
+      execute{statement=insert_diff, data={idset, rev}, step=true}
+    end
+  end
+  
+  local i=1
+  for missing in self.db:nrows(missing_revs) do
+    coroutine.yield(i, missing)
+    i = i + 1
+  end
+  self.db:exec(string.format('DROP TABLE %s; COMMIT;', tblname))
+end
+
+--- Co-routine revs_diff: return data about misssing revisions
+-- @usage local data = {
+--     "baz": {
+--         "2-7051cbe5c8faecd085a3fa619e6e6337"
+--     },
+--     "foo": {
+--         "3-6a540f3d701ac518d3b9733d673c5484"
+--     },
+--     "bar": {
+--         "1-d4e501ab47de6b2000fc8a02f84a0c77",
+--         "1-967a00dff5e02add41819138abb3284d"
+--     }
+-- }
+-- for _, missing in db:iterate_revs_diff(data) do
+--   ...
+-- end
+function Sovoc:iterate_revs_diff(data)
+  return coroutine.wrap(function() self:next_revs_diff(data) end)
+end
+
 return Sovoc
