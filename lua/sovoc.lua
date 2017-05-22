@@ -36,7 +36,7 @@ local SCHEMA = [[
   );
   CREATE INDEX seq_idx ON changes (seq);
   CREATE VIEW changes_feed AS
-    SELECT c.seq, d.rowid AS doc_row, d._deleted, d._id, d._rev
+    SELECT c.seq AS seq, d.rowid AS doc_row, d._deleted AS deleted, d._id AS _id, d._rev AS _rev, d.body AS body
     FROM changes c, documents d
     WHERE c.doc_row = d.rowid
     ORDER BY d.rowid;
@@ -326,8 +326,17 @@ end
 -- @usage local changes = db:changes{_seq='06e2f7c-4b188b-9de7a78ef-073b777202'}
 function Sovoc:changes(options)
   local seq = options and options.seq or nil
-  local get_changes = assert(self.db:prepare 'SELECT * FROM changes_feed WHERE doc_row > (SELECT MIN(rowid) FROM changes WHERE seq=?)')
-  local get_changes_all = assert(self.db:prepare 'SELECT * FROM changes_feed')
+  local include_docs = false
+  local fields = 'seq, _id, _rev'
+  if options then
+    include_docs = options.include_docs and options.include_docs or false
+    if include_docs then
+      fields = fields .. ', body'
+    end
+  end
+  
+  local get_changes = assert(self.db:prepare(string.format('SELECT %s FROM changes_feed WHERE doc_row > (SELECT MIN(rowid) FROM changes WHERE seq=?)', fields)))
+  local get_changes_all = assert(self.db:prepare(string.format('SELECT %s FROM changes_feed', fields)))
 
   local statement = get_changes_all
 
@@ -343,6 +352,9 @@ function Sovoc:changes(options)
     if row._deleted == 1 then
       entry.deleted = true
     end
+    if include_docs then
+      entry.body = json.decode(row.body)
+    end
     result[#result+1]=entry
   end
   self.db:exec 'COMMIT'
@@ -357,8 +369,17 @@ end
 -- @see Sovoc:iterate_changes()
 function Sovoc:next_change(options)
   local seq = options and options.seq or nil
-  local get_changes = assert(self.db:prepare 'SELECT * FROM changes_feed WHERE doc_row > (SELECT MIN(rowid) FROM changes WHERE seq=?)')
-  local get_changes_all = assert(self.db:prepare 'SELECT * FROM changes_feed')
+  local include_docs = false
+  local fields = 'seq, _id, _rev'
+  if options then
+    include_docs = options.include_docs and options.include_docs or false
+    if include_docs then
+      fields = fields .. ', body'
+    end
+  end
+  
+  local get_changes = assert(self.db:prepare(string.format('SELECT %s FROM changes_feed WHERE doc_row > (SELECT MIN(rowid) FROM changes WHERE seq=?)', fields)))
+  local get_changes_all = assert(self.db:prepare(string.format('SELECT %s FROM changes_feed', fields)))
 
   local statement = get_changes_all
 
@@ -372,6 +393,9 @@ function Sovoc:next_change(options)
     local entry = {seq=row.seq, id=row._id, rev=row._rev}
     if row._deleted == 1 then
       entry.deleted = true
+    end
+    if include_docs then
+      entry.body = json.decode(row.body)
     end
     coroutine.yield(index, entry)
     index = index + 1

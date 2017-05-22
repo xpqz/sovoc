@@ -139,7 +139,7 @@ TestMulti = {}
     luaunit.assertEquals(i, 5) -- documents added above
 
     local j = 0
-    for _, entry in db:iterate_changes{seq=bookmark} do
+    for _, entry in db:iterate_changes{seq=bookmark, include_docs=true} do
       j = j + 1
     end
     
