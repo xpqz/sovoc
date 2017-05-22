@@ -6,7 +6,17 @@ local json = require 'cjson'
 
 local db = nil
 
-function tprint (tbl, indent)
+local function has_value (tbl, val)
+    for index, value in ipairs(tbl) do
+        if value == val then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function tprint (tbl, indent)
   if not indent then indent = 0 end
   for k, v in pairs(tbl) do
     formatting = string.rep("  ", indent) .. k .. ": "
@@ -167,7 +177,7 @@ TestRevsdiff = {}
 
     local state = {}
     local fakerev = '6-7069a4a13b158f71082ae633266be1b5'
-
+    
     state[result1.id] = {
       result1.rev,
       result2.rev,
@@ -179,12 +189,42 @@ TestRevsdiff = {}
 
     local revsdiff = db:revs_diff(state)
 
-    print(json.encode(revsdiff))
     luaunit.assertEquals(revsdiff[1]._id, result1.id)
     luaunit.assertEquals(revsdiff[1]._rev, fakerev)
     luaunit.assertEquals(#revsdiff, 1)
   end
 
+  function TestRevsdiff:test_co_revs_diff()
+    local result1 = db:insert{doc={name='stefan'}}
+    local result2 = db:insert{doc={name='stefan astrup'}, _id=result1.id, _rev=result1.rev}
+    local result3 = db:insert{doc={name='stef'}, _id=result1.id, _rev=result1.rev}
+    local result4 = db:insert{doc={name='steffe'}, _id=result1.id, _rev=result1.rev}
+    local result5 = db:insert{doc={name='stefan astrup kruger'}, _id=result1.id, _rev=result2.rev}
+
+    local state = {}
+
+    local fakes = {'6-7069a4a13b158f71082ae633266be1b5', '7-a91f697da19c4e454e809064fa6fb534', '8-b22f1606faf694810fd822de2b9929b3'}
+    
+    state[result1.id] = {
+      result1.rev,
+      result2.rev,
+      result3.rev,
+      result4.rev,
+      result5.rev,
+      fakes[1], 
+      fakes[2],
+      fakes[3]
+    }
+
+    local count = 0
+    for _, entry in db:iterate_revs_diff(state) do
+      luaunit.assertEquals(entry._id, result1.id)
+      luaunit.assertTrue(has_value(fakes, entry._rev))
+      count = count + 1
+    end
+
+    luaunit.assertEquals(count, #fakes)
+  end
   -- end of table TestRevsdiff
 
 os.exit(luaunit.LuaUnit.run())

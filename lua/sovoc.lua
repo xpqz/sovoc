@@ -7,7 +7,8 @@ local mp = require 'MessagePack'
 local md5 = require 'md5'
 local json = require 'cjson'
 
-local SCHEMA = [[
+-- TODO: explicit primary keys to survive compaction
+local SCHEMA = [[ 
   BEGIN TRANSACTION;
   CREATE TABLE IF NOT EXISTS documents (
     _id TEXT NOT NULL,
