@@ -194,8 +194,7 @@ class Sovoc:
                 with self.conn:
                     revs = self.conn.cursor()
                     document = json.loads(leaf['body'])
-                    document['_revisions'] = {'ids':[]}
-                    document['_revisions']['start'] = leaf['generation'] 
+                    document['_revisions'] = {'ids':[], 'start':leaf['generation']}
                     # For each branch, find all ancestral nodes
                     for rev in revs.execute(find_ancestral_revs, [leaf['rowid']]):
                         document['_revisions']['ids'].append(rev['_rev'].split('-')[1])
