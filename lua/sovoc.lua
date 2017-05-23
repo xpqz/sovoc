@@ -102,7 +102,7 @@ local function execute(arg)
     end
   end
   
-  return true
+  return arg.statement
 end
 
 local function fetchone(bound_statement)
@@ -494,6 +494,77 @@ end
 -- end
 function Sovoc:iterate_revs_diff(data)
   return coroutine.wrap(function() self:next_revs_diff(data) end)
+end
+
+--- Co-routine all_docs:
+-- @usage ...
+-- for _, entry in db:list(data) do
+--   ...
+-- end
+-- @see See: http://docs.couchdb.org/en/2.0.0/api/database/bulk-api.html#db-all-docs
+
+function Sovoc:next_list(options)
+  local args = options and options or {} 
+  local include_docs = args.include_docs
+  local conflicts = args.conflicts
+  if not include_docs then -- only allow conflicts if also including doc bodies; see CouchAPI link above
+    conflicts = nil
+  end
+
+  local keys = args.keys
+  local fields = '_id, _rev'
+  if include_docs then 
+    fields = fields .. ', body'
+  end
+        
+  local get_keyed_winners
+  local get_winners = assert(self.db:prepare(string.format('SELECT %s FROM documents WHERE leaf=1 AND _deleted=0 ORDER BY generation DESC, _rev DESC', fields)))
+  if keys then
+    local keyed_param_bindings = string.rep('?,', #keys - 1)..'?'
+    get_keyed_winners = assert(self.db:prepare(string.format('SELECT %s FROM documents WHERE leaf=1 AND _deleted=0 AND _id IN (%s) ORDER BY generation DESC, _rev DESC', fields, keyed_param_bindings)))
+  end
+
+  local statement
+  if keys then
+    statement = execute{statement=get_keyed_winners, data=keys}
+  else
+    statement = execute{statement=get_winners, data={}}
+  end
+            
+  local current_id = nil
+  local index = 1
+  for row in statement:nrows() do
+    -- If conflicts are requested, we return all leaf revisions, otherwise, only the winners (the first revision)
+    if conflicts or row._id ~= current_id then
+      local entry = {id=row._id, rev=row._rev}
+      current_id = row._id
+      if include_docs then 
+        entry['doc'] = json.decode(row.body)
+      end
+      coroutine.yield(index, entry)
+      index = index + 1
+    end
+  end
+end
+
+--- Co-routine for listing all documents
+-- @param include_docs bool Set to true to also include document bodies
+-- @param conflicts bool Set to true to also include any conflicted leaves
+-- @param keys table Only list details for the given set of keys
+-- @usage for _, entry in db:iterate_list{
+--    include_docs=true, 
+--    conflicts=true, 
+--    keys={
+--      '915c7ff27d69dead4082e0bdb04240f9',
+--      'ee65381517c5a5921ac5ad7e80f6c215',
+--      '3c43d5ce3c4079fff0ef4234df5f0736' 
+--    }
+-- } do
+--   ...
+-- end
+-- @see See: http://docs.couchdb.org/en/2.0.0/api/database/bulk-api.html#db-all-docs
+function Sovoc:iterate_list(options)
+  return coroutine.wrap(function() self:next_list(options) end)
 end
 
 return Sovoc

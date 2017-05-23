@@ -225,6 +225,55 @@ TestRevsdiff = {}
 
     luaunit.assertEquals(count, #fakes)
   end
-  -- end of table TestRevsdiff
+-- end of table TestRevsdiff
+
+  TestAlldocs = {}
+  function TestAlldocs:setUp()
+    db = Sovoc:new{database=':memory:'}
+    db:setup()
+  end
+
+  function TestAlldocs:tearDown()
+    
+  end
+
+  function TestAlldocs:test_alldocs1()
+    local result1 = db:insert{doc={name='stefan'}}
+    local result2 = db:insert{doc={name='stefan astrup'}, _id=result1.id, _rev=result1.rev}
+    local result3 = db:insert{doc={name='stef'}, _id=result1.id, _rev=result1.rev}
+    local result4 = db:insert{doc={name='steffe'}, _id=result1.id, _rev=result1.rev}
+    local result5 = db:insert{doc={name='stefan astrup kruger'}, _id=result1.id, _rev=result2.rev}
+        
+    local bulk_results = db:bulk{
+      {name='adam'},
+      {name='bob'},
+      {name='charlie'},
+      {name='danni'},
+      {name='eve'},
+      {name='frank'}
+    }
+        
+    local count = 0
+    for _, winner in db:iterate_list{include_docs=true} do
+      count = count + 1
+    end
+
+    luaunit.assertEquals(count, 7)
+            
+    count = 0
+    for _, leaf in db:iterate_list{include_docs=true, conflicts=true} do
+      count = count + 1
+    end
+            
+    luaunit.assertEquals(count, 9)
+        
+    local keys = {result1.id, bulk_results[3].id, bulk_results[6].id}
+    count = 0
+    for _, doc in db:iterate_list{include_docs=true, keys=keys} do
+      count = count + 1
+    end  
+    luaunit.assertEquals(count, #keys)
+  end
+-- end of table TestAlldocs
 
 os.exit(luaunit.LuaUnit.run())
